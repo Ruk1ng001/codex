@@ -1,11 +1,28 @@
-# 渠道真实值：含 token，绝不进 git。线上由 CI Secret 注入，本地由此文件提供。
+# ── 渠道真实值 ─────────────────────────────────────────────
+# 含 token，绝不进 git。线上由 CI Secret 注入，本地由此文件提供。
 # 只跟踪 channel.env.example（示例，无真实值）。
 /brand/channel.env
 
-# 渲染产物：由 render-config.sh 把模板占位符替换成真实值生成，含 token，不进 git。
+# ── 渲染产物（本地 config 实例）────────────────────────────
+# render-config.sh 把模板占位符替换成真实值生成，含 token，不进 git。
+# 默认输出 brand/config.toml；打包时会把成品 config.toml 放到 installer/ 或 dist/
+# 供安装器随包分发——这些「本地 config 实例」都含真实 token，一律忽略。
 /brand/config.toml
 /dist/
+/installer/config.toml
 
-# 本地工作/编辑器文件
+# ── auth / 密钥文件 ───────────────────────────────────────
+# codex 登录后在配置目录写 auth.json（含 access token / API key）；
+# 若测试时把它复制进仓库，或存在其他私钥 / env，一并忽略，防止误提交。
+# 注：*.env 匹配 channel.env 等真实值文件，但不匹配 *.env.example（示例仍跟踪）。
+auth.json
+.env
+*.env
+*.pem
+*.key
+id_rsa*
+
+# ── 本地工作 / 编辑器文件 ─────────────────────────────────
+# .claude/ 含 agent 运行时凭据（ANTHROPIC_AUTH_TOKEN 等），绝不进 git / 产品包。
 .chief/
 .claude/

@@ -67,6 +67,7 @@
     BASE_SHA                # 跟随的 release tag 对应 commit ✅
     BASE_TAG                # 跟随的官方 release tag（如 rust-v0.142.5）✅
     config.template.toml    # 内置渠道模板（占位符 __BASE_URL__/__TOKEN__/__MODEL__）✅
+    SECURITY.md             # 分发前安全清理结论：内置 token 方案 + 凭据剥离 + gitignore 策略 ✅
     channel.env.example     # 渠道真实值示例（复制为 channel.env 填真实值，后者 .gitignore 忽略）✅
     channel.env             # 渠道真实值（含 token，本地打包用，不进 git）— 按需创建
     patches/                # 补丁存放目录（含 patches.manifest）
@@ -211,12 +212,20 @@
   改动会进 index。比对闭环内容必须用 `git diff HEAD`（含已暂存改动），不能用裸
   `git diff`（只看未暂存），否则重应用后的 `actual.diff` 会假性为空。
 
-### #2 安全提醒（分发前必处理）
+### #2 分发前安全清理 —— ✅ 已处理（US-014）
 
 - 内置 token 会随分发包落到每个用户机器，等同公开。
   建议用低权限/限额 key，或做「每用户独立 key」发放方案，**不要用个人主 key**。
-- 现有 `.claude/settings.json` 里硬编码的 token 与中转地址，分发前需从产品包剥离。
-- CI 里 token 只能走 GitHub Secret 注入，绝不进 git 历史。
+  → 方案结论见 `brand/SECURITY.md`（阶段策略：MVP 用限额 key、成长期转每用户发放）。
+- 现有 `.claude/settings.json` 里硬编码的 token 与中转地址，已确认被根 `.gitignore`
+  忽略（`.claude/`），**从未进入 git 历史**（全历史 blob 扫描无命中），CI 从 git
+  checkout 构建，故不会落进产品包。
+- CI 里 token 只能走 GitHub Secret 注入，绝不进 git 历史（US-007/009/013 已固化）。
+- `.gitignore` 已扩展覆盖会含密文件：本地 config 实例（`config.toml`/`dist/`/
+  `installer/config.toml`）、auth 文件（`auth.json`）、通用密钥/env（`*.env`/`*.pem`/
+  `*.key`/`id_rsa*`），且不误伤 `*.env.example` 示例。
+- **验证结论**：token 从未进 git 历史；`.claude/settings.json` 从未被跟踪；跟踪文件中
+  无任何真实 token / 中转地址；模板与示例只含占位符。
 
 ---
 
