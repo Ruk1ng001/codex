@@ -82,6 +82,9 @@
   installer/                # 面向终端用户的安装器
     write-default-config.sh   # 首启动幂等写入 config.toml（Mac/Linux）✅
     write-default-config.ps1  # 首启动幂等写入 config.toml（Windows，与 .sh 行为对齐）✅
+  .github/workflows/
+    build.yml               # 可复用多平台编译（workflow_call）：submodule→apply-patches→cargo build ✅
+    ci.yml                  # CI 入口：校验补丁可应用 + 复用 build.yml 多平台编译 ✅
   .gitignore                # 忽略真实值(channel.env)、渲染产物(config.toml/dist)、工作文件 ✅
   TODO.md                   # 本文件
 ```
@@ -146,11 +149,14 @@
 
 ### 🟢 P2 — CI 与分发
 
-- [ ] **GitHub Actions CI**（`.github/workflows/`）
-  - checkout 官方仓库到锁定 SHA → `apply-patches.sh` → 多平台编译
-  - 目标平台：`x86_64-pc-windows-msvc`、`x86_64-apple-darwin`、`aarch64-apple-darwin`
-  - token 通过 GitHub Secret 注入，**绝不提交进仓库**
-  - 产物：`cx.exe`（Win）、`cx`（Mac x64/arm64）
+- [x] **GitHub Actions CI**（`.github/workflows/`）✅ US-009
+  - `build.yml`（可复用 `workflow_call`）：clone codex 到 `BASE_TAG` → `apply-patches.sh` → 多平台 `cargo build --release --bin codex`
+  - `ci.yml`（push/PR 入口）：先跑补丁自检 job，再 `uses: ./.github/workflows/build.yml` 复用编译
+  - 目标平台：`x86_64-pc-windows-msvc`（windows-latest）、`x86_64-apple-darwin`（macos-13）、`aarch64-apple-darwin`（macos-14），全部原生编译不交叉
+  - token 通过 GitHub Secret 注入，**绝不提交进仓库**；本工作流是纯编译，完全不接触 token/config 渲染，产物是裸二进制
+  - release 编译只 `cargo build` 不 `cargo test`，故不触发中文化补丁导致失败的快照测试
+  - 产物：`cx.exe`（Win）、`cx`（Mac x64/arm64），由 upload-artifact 上传，供 US-013 下游 download-artifact 复用
+  - macOS runner 自带 bash 3.2 不支持 `mapfile`/`declare -A`，工作流 `brew install bash` 后再跑 apply-patches.sh
 - [ ] **Mac 安装器** `installer/install.sh`
   - 改自官方 `scripts/install/install.sh`，去掉 GitHub 下载逻辑
   - 本地二进制 + 写 config + 加 PATH + 命令名 `cx`
@@ -163,7 +169,7 @@
 
 - [ ] **M0 验证协议**：确认 new-api 的 `/v1/responses` 可用（占位 token 手测）
       —— **这步不过，后面都白搭**
-- [ ] **M1 编译验证**：交给 CI（本机不跑重编译）
+- [x] **M1 编译验证**：交给 CI（本机不跑重编译）✅ US-009 落地 `.github/workflows/{build,ci}.yml`；待推 GitHub 后由 CI 实跑
 - [ ] **M2 内置渠道**：验证免登录进入 + 能对话
 - [ ] **M3 补丁**：命令名 + 中文化，重编译验证
 - [ ] **M4 打包分发**：mac + win 安装器，端到端走一遍

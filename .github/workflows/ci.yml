@@ -1,0 +1,48 @@
+# CI 入口：push / PR 时校验「补丁能干净应用 + 多平台能编出 cx 二进制」。
+#
+# 复用可复用的 build.yml（workflow_call），与 US-013 自动发布流程共用同一套
+# 编译逻辑，避免两处重复维护。本机（维护者 ARM64 Linux）不参与编译，全部在 CI runner 上跑。
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # 补丁工作流自检：不编译，快速校验补丁能干净叠加到基线。
+  patches:
+    name: 校验补丁可干净应用
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout 父仓库
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Checkout codex submodule 到跟随的 release tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_TAG="$(tr -d '[:space:]' < brand/BASE_TAG)"
+          BASE_SHA="$(tr -d '[:space:]' < brand/BASE_SHA)"
+          rm -rf codex
+          git clone --depth 1 --branch "${BASE_TAG}" \
+            https://github.com/openai/codex.git codex
+          got="$(git -C codex rev-parse HEAD)"
+          if [ "${got}" != "${BASE_SHA}" ]; then
+            echo "错误：tag ${BASE_TAG} 指向 ${got}，与 brand/BASE_SHA (${BASE_SHA}) 不符。" >&2
+            exit 1
+          fi
+      - name: 应用补丁（校验干净叠加）
+        run: bash scripts/apply-patches.sh
+
+  # 多平台编译：复用 build.yml，产出 cx.exe / cx（Mac x64/arm64）。
+  build:
+    name: 多平台编译
+    needs: patches
+    uses: ./.github/workflows/build.yml

@@ -1,0 +1,126 @@
+# 可复用的多平台编译工作流（US-009）。
+#
+# 职责：checkout 官方 codex submodule 到「跟随的 release tag」→ 叠加 brand/ 补丁
+#       → 在各目标平台上 `cargo build --release`，产出品牌命令 `cx` 的二进制。
+#
+# 设计约定：
+#   - 本机（维护者 ARM64 Linux）不做任何重编译，编译全部交给本工作流的 CI runner。
+#   - 只 `cargo build`，从不 `cargo test`：中文化补丁（02-brand-i18n）会让 tui 的
+#     `.snap` 快照测试失败，那是既定取舍（见 TODO.md）。release 二进制不依赖测试，
+#     故此处不跑任何测试步骤，快照失败与发布解耦。
+#   - Token 安全：本工作流是「纯编译」，完全不接触渠道 token / config 渲染。
+#     产物是裸二进制，绝不含 token。渠道 token 只在发布/打包阶段（US-013）通过
+#     GitHub Secret 注入 render-config.sh，绝不写进 git 历史或编译产物。
+#   - 可被自动发布流程（US-013）以 `uses: ./.github/workflows/build.yml` 复用，
+#     从下游 job 用 actions/download-artifact 取回各平台二进制。
+name: build
+
+on:
+  workflow_call:
+    inputs:
+      artifact-prefix:
+        description: "上传产物名的前缀，便于发布流程区分不同来源（默认 cx）。"
+        required: false
+        type: string
+        default: cx
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Windows x64：原生 MSVC，产物 cx.exe
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bin: codex.exe
+            out: cx.exe
+          # macOS Intel：原生编译，产物 cx
+          - os: macos-13
+            target: x86_64-apple-darwin
+            bin: codex
+            out: cx
+          # macOS Apple Silicon：原生编译，产物 cx
+          - os: macos-14
+            target: aarch64-apple-darwin
+            bin: codex
+            out: cx
+
+    steps:
+      - name: Checkout 父仓库（含补丁与脚本，不递归 submodule）
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      # codex submodule 的 .gitmodules url 用了 SSH 别名，CI 里不一定能解析；
+      # openai/codex 是公开仓库，直接按跟随的 release tag 浅克隆更可靠。
+      # apply-patches.sh 随后会 `git reset --hard $BASE_SHA` 并叠加补丁。
+      - name: Checkout codex submodule 到跟随的 release tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_TAG="$(tr -d '[:space:]' < brand/BASE_TAG)"
+          BASE_SHA="$(tr -d '[:space:]' < brand/BASE_SHA)"
+          echo "跟随的官方 release tag: ${BASE_TAG} (${BASE_SHA})"
+          rm -rf codex
+          git clone --depth 1 --branch "${BASE_TAG}" \
+            https://github.com/openai/codex.git codex
+          got="$(git -C codex rev-parse HEAD)"
+          if [ "${got}" != "${BASE_SHA}" ]; then
+            echo "错误：tag ${BASE_TAG} 指向 ${got}，与 brand/BASE_SHA (${BASE_SHA}) 不符。" >&2
+            echo "处理：核对 brand/BASE_TAG 与 brand/BASE_SHA 是否同步。" >&2
+            exit 1
+          fi
+
+      # macOS 系统自带 /bin/bash 是 3.2，不支持脚本用到的 mapfile / declare -A（bash 4+）。
+      - name: 安装现代 bash（仅 macOS，供 apply-patches.sh 使用）
+        if: runner.os == 'macOS'
+        run: brew install bash
+
+      - name: 应用品牌补丁（reset 到基线 → 叠加 brand/patches/*.patch）
+        shell: bash
+        run: bash scripts/apply-patches.sh
+
+      - name: 安装 Rust 工具链（1.95.0 + 目标平台）
+        uses: dtolnay/rust-toolchain@e081816240890017053eacbb1bdf337761dc5582 # 1.95.0
+        with:
+          targets: ${{ matrix.target }}
+
+      # 只编译 cx 主二进制（--bin codex，bin 名仍是官方的 codex）。
+      # 不跑 cargo test，因此不触发中文化补丁导致失败的快照测试。
+      - name: 编译 cx（release，仅编译不测试）
+        working-directory: codex/codex-rs
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ matrix.target }}" == "x86_64-pc-windows-msvc" ]]; then
+            # 与官方 release 工作流一致，规避 Windows 上 SQLite 内建函数的链接问题。
+            export LIBSQLITE3_FLAGS=SQLITE_DISABLE_INTRINSIC
+          fi
+          cargo build --release --bin codex --target "${{ matrix.target }}"
+
+      - name: 归置产物并改名为 cx
+        shell: bash
+        run: |
+          set -euo pipefail
+          src="codex/codex-rs/target/${{ matrix.target }}/release/${{ matrix.bin }}"
+          if [ ! -f "$src" ]; then
+            echo "错误：未找到编译产物 $src" >&2
+            exit 1
+          fi
+          mkdir -p dist
+          cp "$src" "dist/${{ matrix.out }}"
+          ls -lh "dist/${{ matrix.out }}"
+
+      - name: 上传平台二进制产物
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: ${{ inputs.artifact-prefix }}-${{ matrix.target }}
+          path: dist/${{ matrix.out }}
+          if-no-files-found: error
