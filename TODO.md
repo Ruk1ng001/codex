@@ -87,6 +87,7 @@
   .github/workflows/
     build.yml               # 可复用多平台编译（workflow_call）：submodule→apply-patches→cargo build ✅
     ci.yml                  # CI 入口：校验补丁可应用 + 复用 build.yml 多平台编译 ✅
+    release.yml             # 自动检测+发布：schedule/dispatch→update.sh→复用 build.yml→gh release ✅
   .gitignore                # 忽略真实值(channel.env)、渲染产物(config.toml/dist)、工作文件 ✅
   TODO.md                   # 本文件
 ```
@@ -169,8 +170,15 @@
   - 本地二进制（`-Binary`/`CX_BINARY`/按架构自动探测 `cx-<target>.exe`）+ 调 `write-default-config.ps1` 写 config + 命令名 `cx`
   - 支持 x64（`x86_64-pc-windows-msvc`）与 arm64（`aarch64-pc-windows-msvc`）
   - 二进制装成 `$CX_INSTALL_DIR`（默认 `%LOCALAPPDATA%\Programs\cx\bin`）下单文件 `cx.exe`；PATH 写用户环境变量，PowerShell + CMD 新会话都生效
-- [ ] **更新跟随流程** `scripts/update.sh`
-  - `fetch 官方 → 更新 BASE_SHA → apply-patches → 冲突则手改后 make-patches → 提交`
+- [x] **更新跟随流程** `scripts/update.sh`（US-012 完成）
+  - `fetch 官方 → 更新 BASE_SHA/BASE_TAG → apply-patches → 冲突则诊断+回滚 → 干净重放 exit 0`
+  - 查最新稳定 tag（过滤 alpha/畸形）与当前基线比对；无参已最新则 exit 0，可指定 tag（回滚/复现）
+- [x] **自动检测 + 自动发布工作流** `.github/workflows/release.yml`（US-013 完成）
+  - `schedule`（每天定时）+ `workflow_dispatch`（可指定 tag / force 重发）触发
+  - detect job：调 `update.sh` 检测上游最新 release 并更新基线；无新版本空跑退出；补丁冲突开 issue 报警并中止
+  - build job：复用 `build.yml`（`workflow_call`，传基线更新后的 `ref`）产三平台二进制
+  - release job：定制版本号 = 上游版本 + `-cx.N` 后缀（同上游版本再发则 N 递增）→ `gh release create`
+  - token 只经 GitHub Secret（`GITHUB_TOKEN`），纯编译发布裸二进制，不接触渠道 token；本机不编译
 
 ### 🔵 里程碑验证
 
@@ -180,7 +188,7 @@
 - [ ] **M2 内置渠道**：验证免登录进入 + 能对话
 - [ ] **M3 补丁**：命令名 + 中文化，重编译验证
 - [ ] **M4 打包分发**：mac + win 安装器，端到端走一遍
-- [ ] **M5 更新机制**：模拟一次官方更新，验证补丁重放
+- [x] **M5 更新机制**：`scripts/update.sh`（US-012）本地实跑四路径通过 + `release.yml`（US-013）自动检测+发布；待推 GitHub 后由定时/手动触发实跑验证
 
 ---
 

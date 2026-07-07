@@ -23,6 +23,14 @@ on:
         required: false
         type: string
         default: cx
+      ref:
+        description: >-
+          要 checkout 的父仓库 ref（默认空 = 触发工作流的 ref）。
+          自动发布流程（US-013）在此传入「基线更新后」的 commit，
+          使编译读取到新的 brand/BASE_TAG / BASE_SHA，从而编出新上游版本。
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -56,6 +64,8 @@ jobs:
       - name: Checkout 父仓库（含补丁与脚本，不递归 submodule）
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          # ref 为空时用触发工作流的默认 ref；发布流程会传入基线更新后的 commit。
+          ref: ${{ inputs.ref }}
           persist-credentials: false
 
       # codex submodule 的 .gitmodules url 用了 SSH 别名，CI 里不一定能解析；
