@@ -98,12 +98,15 @@ for i in "${!GROUP_NAME[@]}"; do
     git -C "$SRC_DIR" add -N -- "$f" 2>/dev/null || true
   done
   git -C "$SRC_DIR" diff -- "${files[@]}" > "$out"
-  if [ -s "$out" ]; then
-    echo "✓ 导出 $(basename "$out")  (${#files[@]} 个文件)"
-    exported=$((exported+1))
-  else
+  # 导出后校验：匹配到了文件却生成空补丁，是静默失败（见 TODO「已知问题 #1」），报错退出
+  if [ ! -s "$out" ]; then
     rm -f "$out"
+    die "导出失败：补丁组 [${GROUP_NAME[$i]}] 匹配到 ${#files[@]} 个已改动文件，但 git diff 生成的补丁为空。
+    可能这些文件的改动已被 add/commit 到 codex/ 的 index，或路径匹配到了未真正改动的文件。
+    受影响文件：${files[*]}"
   fi
+  echo "✓ 导出 $(basename "$out")  (${#files[@]} 个文件)"
+  exported=$((exported+1))
 done
 
 echo "完成,共导出 $exported 个补丁到 $PATCHES_DIR"

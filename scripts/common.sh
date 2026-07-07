@@ -20,6 +20,7 @@ PATCH_DIR="$BRAND_DIR/patches"
 PATCHES_DIR="$PATCH_DIR"   # 别名，兼容其他脚本里用的 PATCHES_DIR
 BASE_SHA_FILE="$BRAND_DIR/BASE_SHA"
 BASE_TAG_FILE="$BRAND_DIR/BASE_TAG"
+MANIFEST_FILE="$BRAND_DIR/patches.manifest"
 
 # 读取锁定的基线 SHA（去掉空白）
 read_base_sha() {
@@ -29,6 +30,31 @@ read_base_sha() {
 # 读取跟随的 release tag（去掉空白）
 read_base_tag() {
   tr -d '[:space:]' < "$BASE_TAG_FILE"
+}
+
+# 去掉字符串首尾空白（纯 bash，避免 echo|xargs 子管道在 set -e 下的坑）
+trim() {
+  local s="$1"
+  s="${s#"${s%%[![:space:]]*}"}"             # 去前导空白
+  s="${s%"${s##*[![:space:]]}"}"             # 去尾随空白
+  printf '%s' "$s"
+}
+
+# 从 patches.manifest 解析出所有补丁组名（[组名] 段头），一行一个。
+# 供 apply-patches.sh 校验「清单声明的每个补丁是否都有对应 .patch 文件」。
+manifest_group_names() {
+  [ -f "$MANIFEST_FILE" ] || die "找不到清单文件: $MANIFEST_FILE"
+  local line name
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%%#*}"                       # 去掉行内注释
+    line="$(trim "$line")"                    # 去首尾空白
+    [ -z "$line" ] && continue
+    if [[ "$line" == \[*\] ]]; then
+      name="${line#\[}"; name="${name%\]}"
+      printf '%s\n' "$name"
+    fi
+  done < "$MANIFEST_FILE"
+  return 0                                    # while 在 EOF 返回非零，显式归零避免 set -e 误伤
 }
 
 # 确认 codex/ 是干净的 git 工作区（无未提交改动）
