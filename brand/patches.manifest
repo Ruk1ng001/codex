@@ -3,10 +3,14 @@
 # make-patches.sh 按此清单把工作区改动导出成独立的 .patch 文件。
 # 分组的意义：官方更新导致冲突时，只有相关补丁需要重做，互不牵连。
 
+# 命令改名：主命令 codex → cx（bin_name / override_usage / 顶层描述 + npm bin key）
 [01-rename-cx]
 codex-rs/cli/src/main.rs
+codex-cli/package.json
 
-[02-brand-i18n]
-codex-rs/tui/src/onboarding/welcome.rs
-codex-rs/tui/src/onboarding/trust_directory.rs
-codex-rs/tui/src/chatwidget.rs
+# 品牌层中文化：尚未实现（US-006）。届时连同补丁一起把本组加回，
+# 否则 apply-patches.sh 会因「声明了组却无对应 .patch」而报错退出。
+# [02-brand-i18n]
+# codex-rs/tui/src/onboarding/welcome.rs
+# codex-rs/tui/src/onboarding/trust_directory.rs
+# codex-rs/tui/src/chatwidget.rs

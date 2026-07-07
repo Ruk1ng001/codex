@@ -1,0 +1,56 @@
+diff --git a/codex-cli/package.json b/codex-cli/package.json
+index fd122128e5..932494af80 100644
+--- a/codex-cli/package.json
++++ b/codex-cli/package.json
+@@ -4,7 +4,7 @@
+   "description": "Codex CLI is a coding agent from OpenAI that runs locally on your computer.",
+   "license": "Apache-2.0",
+   "bin": {
+-    "codex": "bin/codex.js"
++    "cx": "bin/codex.js"
+   },
+   "type": "module",
+   "engines": {
+diff --git a/codex-rs/cli/src/main.rs b/codex-rs/cli/src/main.rs
+index 8fd1358efd..61d51fbbbf 100644
+--- a/codex-rs/cli/src/main.rs
++++ b/codex-rs/cli/src/main.rs
+@@ -88,7 +88,22 @@ use codex_protocol::protocol::AskForApproval;
+ use codex_protocol::user_input::UserInput;
+ use codex_terminal_detection::TerminalName;
+ 
+-/// Codex CLI
++/// 主命令名（品牌入口，占位名，后续可改）。
++///
++/// **改名唯一改动点**：把这个常量的值换成目标名字，即可同步更新
++/// clap 的 `bin_name` 与 `override_usage`（见下方 `MultitoolCli`）。
++/// 若走 npm 分发，另需同步修改 `codex-cli/package.json` 的 `bin` key。
++const COMMAND_NAME: &str = "cx";
++
++/// 由 [`COMMAND_NAME`] 拼出的用法行，供 clap 的 `override_usage` 使用，
++/// 保证命令名只在 [`COMMAND_NAME`] 一处定义。
++fn command_usage() -> String {
++    format!(
++        "{COMMAND_NAME} [OPTIONS] [PROMPT]\n       {COMMAND_NAME} [OPTIONS] <COMMAND> [ARGS]"
++    )
++}
++
++/// cx CLI
+ ///
+ /// If no subcommand is specified, options will be forwarded to the interactive CLI.
+ #[derive(Debug, Parser)]
+@@ -98,10 +113,10 @@ use codex_terminal_detection::TerminalName;
+     // If a sub‑command is given, ignore requirements of the default args.
+     subcommand_negates_reqs = true,
+     // The executable is sometimes invoked via a platform‑specific name like
+-    // `codex-x86_64-unknown-linux-musl`, but the help output should always use
+-    // the generic `codex` command name that users run.
+-    bin_name = "codex",
+-    override_usage = "codex [OPTIONS] [PROMPT]\n       codex [OPTIONS] <COMMAND> [ARGS]"
++    // `cx-x86_64-unknown-linux-musl`, but the help output should always use
++    // the generic command name (`COMMAND_NAME`) that users run.
++    bin_name = COMMAND_NAME,
++    override_usage = command_usage()
+ )]
+ struct MultitoolCli {
+     #[clap(flatten)]
