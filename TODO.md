@@ -68,13 +68,14 @@
     BASE_TAG                # 跟随的官方 release tag（如 rust-v0.142.5）✅
     config.template.toml    # 内置渠道模板（占位 base_url/token）✅
     patches/                # 补丁存放目录（含 patches.manifest）
-    patches.manifest        # 补丁分组清单 ✅（但格式与脚本不匹配，见「已知问题」）
+    patches.manifest        # 补丁分组清单 ✅（分段格式，脚本已统一解析）
     frames/                 # 自定义启动动画（可选，暂空）
   scripts/
     common.sh               # 公共变量/函数 ✅
     reset-src.sh            # 还原 codex/ 到基线 ✅
-    apply-patches.sh        # 应用补丁到基线 ✅
-    make-patches.sh         # 从工作区导出补丁 ✅（有 bug，见「已知问题」）
+    apply-patches.sh        # 应用补丁到基线 ✅（含前后校验）
+    make-patches.sh         # 从工作区导出补丁 ✅（含导出校验）
+    test-patch-roundtrip.sh # 端到端闭环测试：改动→导出→还原→重应用，不编译 ✅
   installer/                # 面向终端用户的安装器（暂空）
   TODO.md                   # 本文件
 ```
@@ -91,6 +92,7 @@
 - [x] 写内置渠道配置模板 `brand/config.template.toml`
 - [x] 写补丁工作流四个脚本（common / reset / apply / make）
 - [x] 写补丁分组清单 `brand/patches.manifest`
+- [x] 端到端可靠性测试 `scripts/test-patch-roundtrip.sh`（改动→导出→还原→重应用，不编译）
 
 ---
 
@@ -98,10 +100,11 @@
 
 ### 🔴 P0 — 先修复阻塞问题
 
-- [ ] **修复 `make-patches.sh` 与 `patches.manifest` 格式不匹配的 bug**（见「已知问题 #1」）
-  - 二选一：改脚本按 `[组名]` + 文件列表的段落格式解析；
-    或改 manifest 回到脚本期望的 `序号 组名 前缀` 单行格式。
-  - 修完必须重跑端到端测试（造改动 → 导出 → 还原 → 重应用 → 验证内容回来）。
+- [x] **修复 `make-patches.sh` 与 `patches.manifest` 格式不匹配的 bug**（见「已知问题 #1」）
+  - 已改脚本按 `[组名]` + 文件列表的段落格式解析（US-002）；
+    补丁应用/导出加入前后校验消除静默失败（US-003）。
+  - 端到端测试 `scripts/test-patch-roundtrip.sh` 已固化：造改动 → 导出 → 还原 →
+    重应用 → 逐字节比对，全程不编译，实测通过（US-004）。
 
 ### 🟡 P1 — 补丁内容（改源码部分，逐个文件精确改）
 
@@ -153,19 +156,22 @@
 
 ## 六、已知问题
 
-### #1 `make-patches.sh` 与 `patches.manifest` 格式不匹配（阻塞，未修）
+### #1 `make-patches.sh` 与 `patches.manifest` 格式不匹配 —— ✅ 已解决（US-002/003/004）
 
 - **现象**：导出补丁时报 `printf: [01-rename-cx]: invalid number`，补丁未生成。
-- **根因**：
-  - `make-patches.sh` 期望 manifest 每行是 `序号 组名 路径前缀`（单行三列），
-    并用 `printf '%02d'` 格式化序号。
-  - 但当前 `patches.manifest` 用的是 `[组名]` 段落 + 文件列表的格式。
-  - 两者对不上，脚本把 `[01-rename-cx]` 当序号去 `printf '%02d'` 就崩了。
-- **端到端测试现状**：第一次跑「假成功」（apply 报成功但文件没变，因为补丁文件
-  根本没生成、`git apply` 打开不存在的文件却返回 0）。需连同这个静默失败一起修
-  （apply-patches.sh 应校验补丁文件存在、应用后验证 git status 有改动）。
-- **待决定**：统一成哪种 manifest 格式。建议用 `[组名]` 段落格式（可读性好），
-  改 `make-patches.sh` 的解析逻辑，序号从组名前缀 `NN-` 提取。
+- **根因**：`make-patches.sh` 期望 manifest 每行是 `序号 组名 路径前缀`（单行三列）
+  并 `printf '%02d'` 格式化序号，但 manifest 实际是 `[组名]` 段落 + 文件列表格式，
+  脚本把 `[01-rename-cx]` 当序号丢给 `printf` 就崩了。
+- **修复**：
+  - US-002 —— 统一用 `[组名]` 段落格式，改写 `make-patches.sh` 解析逻辑（组名自带
+    序号前缀直接作输出文件名，去掉 `printf '%02d'`）。
+  - US-003 —— 消除三处静默失败：apply 前校验每个声明组都有 `.patch`、apply 后校验
+    `git status` 确有改动、make 导出后校验补丁非空。
+  - US-004 —— 端到端测试 `scripts/test-patch-roundtrip.sh` 固化闭环：造改动 → 导出 →
+    还原 → 重应用 → 逐字节比对，全程不编译，实测通过。
+- **测试暴露的坑**：`apply-patches.sh` 用 `git apply --3way`，`--3way` 隐含 `--index`，
+  改动会进 index。比对闭环内容必须用 `git diff HEAD`（含已暂存改动），不能用裸
+  `git diff`（只看未暂存），否则重应用后的 `actual.diff` 会假性为空。
 
 ### #2 安全提醒（分发前必处理）
 
