@@ -79,7 +79,9 @@
     make-patches.sh         # 从工作区导出补丁 ✅（含导出校验）
     test-patch-roundtrip.sh # 端到端闭环测试：改动→导出→还原→重应用，不编译 ✅
     render-config.sh        # 打包期渲染：模板占位符 → 真实渠道值（CI Secret/channel.env）✅
-  installer/                # 面向终端用户的安装器（暂空）
+  installer/                # 面向终端用户的安装器
+    write-default-config.sh   # 首启动幂等写入 config.toml（Mac/Linux）✅
+    write-default-config.ps1  # 首启动幂等写入 config.toml（Windows，与 .sh 行为对齐）✅
   .gitignore                # 忽略真实值(channel.env)、渲染产物(config.toml/dist)、工作文件 ✅
   TODO.md                   # 本文件
 ```
@@ -135,8 +137,12 @@
     `brand/channel.env.example`）。换渠道只改 Secret / channel.env，模板与源码都不动。
   - 校验：任一占位符对应变量为空则列出缺失变量 `exit 1`；渲染后残留 `__XXX__` 也报错退出。
   - 写文件时 chmod 600（含 token，按敏感文件处理）；成品 `brand/config.toml` 已被 gitignore。
-- [ ] 首启动写入逻辑（放在安装器里）：检查 `~/.codex/config.toml`，
-  不存在或缺 `[model_providers.newapi]` 则写入；幂等，不覆盖用户修改
+- [x] **首启动幂等写入逻辑（放在安装器里）（US-008 完成）**：检查 `~/.codex/config.toml`，
+  不存在或缺 `[model_providers.newapi]` 则写入；幂等，不覆盖用户修改。
+  - Mac/Linux：`installer/write-default-config.sh`；Windows：`installer/write-default-config.ps1`，
+    两份逐条对齐同一行为契约（配置目录 `CODEX_HOME` 优先否则 `~/.codex`；已含 `[model_providers.newapi]`
+    则不动；不存在则整份写入；存在但缺段则追加，保留用户原有内容）。
+  - 成品配置由 `render-config.sh` 渲染后随安装器分发，作参数传入（默认取脚本同目录 `config.toml`）。
 
 ### 🟢 P2 — CI 与分发
 
