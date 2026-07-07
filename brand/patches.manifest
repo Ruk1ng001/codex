@@ -8,9 +8,9 @@
 codex-rs/cli/src/main.rs
 codex-cli/package.json
 
-# 品牌层中文化：尚未实现（US-006）。届时连同补丁一起把本组加回，
-# 否则 apply-patches.sh 会因「声明了组却无对应 .patch」而报错退出。
-# [02-brand-i18n]
-# codex-rs/tui/src/onboarding/welcome.rs
-# codex-rs/tui/src/onboarding/trust_directory.rs
-# codex-rs/tui/src/chatwidget.rs
+# 品牌层中文化：欢迎语、信任目录提示、登录项、输入框占位提示译为中文（US-006）。
+[02-brand-i18n]
+codex-rs/tui/src/onboarding/welcome.rs
+codex-rs/tui/src/onboarding/trust_directory.rs
+codex-rs/tui/src/onboarding/auth.rs
+codex-rs/tui/src/chatwidget.rs

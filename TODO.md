@@ -108,17 +108,17 @@
 
 ### 🟡 P1 — 补丁内容（改源码部分，逐个文件精确改）
 
-- [ ] **命令改名补丁 `01-rename-cx`**
+- [x] **命令改名补丁 `01-rename-cx`**（US-005 完成）
   - `codex-rs/cli/src/main.rs:103-104`：`bin_name`、`override_usage` 中 "codex" → "cx"
   - `codex-rs/cli/src/main.rs:116 附近`：`/// Codex CLI` 顶层描述
   - `codex-cli/package.json`：npm `bin` key `codex` → `cx`（若走 npm 分发）
-- [ ] **品牌层中文化补丁 `02-brand-i18n`**
-  - `codex-rs/tui/src/onboarding/welcome.rs:94-99`：欢迎语品牌行
-  - `codex-rs/tui/src/onboarding/auth.rs`（~35 处）：只译高频可见登录项
-  - `codex-rs/tui/src/onboarding/trust_directory.rs`（~8 处）：全部译
-  - `codex-rs/tui/src/chatwidget.rs:2026-2041`：`PLACEHOLDERS`(8) + `SIDE_PLACEHOLDERS`(3)
-  - （可选）`codex-rs/core/src/default_client.rs`：`DEFAULT_ORIGINATOR` 改品牌标识
-  - ⚠️ 改字符串会波及 `#[cfg(test)]` 快照测试（`.snap`），release 打包不跑这些测试即可
+- [x] **品牌层中文化补丁 `02-brand-i18n`**（US-006 完成）
+  - `codex-rs/tui/src/onboarding/welcome.rs:94-99`：欢迎语品牌行 → 「欢迎使用 cx，你的命令行编码助手」
+  - `codex-rs/tui/src/onboarding/auth.rs`（高频可见登录项）：登录选项标题/描述、浏览器与设备码提示、成功页、API key 录入页、错误文案全部译中文
+  - `codex-rs/tui/src/onboarding/trust_directory.rs`（全部）：当前目录、Git 子目录警告、信任说明、是/否选项、确认提示全部译中文
+  - `codex-rs/tui/src/chatwidget.rs:2024-2041`：`PLACEHOLDERS`(8) + `SIDE_PLACEHOLDERS`(3) 输入框占位提示译中文
+  - （可选，未做）`codex-rs/core/src/default_client.rs`：`DEFAULT_ORIGINATOR` 改品牌标识——非本故事范围，且属遥测标识，非可见文案
+  - ⚠️ **快照测试影响（已确认）**：改这些字符串会让 `codex-rs/tui/src/` 下依赖旧英文文案的 `#[cfg(test)]` 快照测试（`insta` 的 `.snap`）失败，例如 `welcome.rs` 里 `row_containing(&buf, "Welcome")` 断言、`trust_directory.rs` 的 `renders_snapshot_*`。**这是预期行为，不在本故事修复。** release 打包流程按项目决策（见「一、已确认的决策」编译打包/本机角色，及「M1 编译验证：交给 CI，本机不跑重编译」）配置为**只编译、不跑 `cargo test`/快照测试**，故补丁不触发这些测试；CI（P2 待办）落地时其构建 job 只做多平台 `cargo build --release`，不含 `cargo test`。若未来需要 CI 跑测试，须同步更新受影响的 `.snap` 或给相关测试打 `#[ignore]`。
 
 ### 🟡 P1 — 内置渠道（方案 A：纯配置注入，不改源码）
 
