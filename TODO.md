@@ -199,6 +199,11 @@
   - 可选 Authenticode 代码签名：`CX_SIGN_PFX_BASE64` + `CX_SIGN_PFX_PASSWORD` 配置了才 signtool 签名，否则未签名 + README 说明 SmartScreen 绕过
   - 支持 x64；ARM64 记为可选后续项（`build-msi.ps1` 支持 `-Arch arm64`，CI 当前只产 x64）
   - `README.md`：安装/卸载/SmartScreen「仍要运行」与 `Unblock-File` 绕过说明；release.yml 新增 `package_windows` job，`.msi` 随 Release 分发
+- [x] **打包期把成品配置嵌入安装包** `release.yml` 的 `package_macos`/`package_windows`（US-016 完成）
+  - 打包期用 `render-config.sh`（US-007）把 `config.template.toml` 渲染成成品 `config.toml`，作为 payload 打进 `.pkg`/`.msi`（US-010/011 已建机制，US-016 加固安全守卫）
+  - 验收 3（日志不泄漏明文）：渲染前 `::add-mask::` 把 `CX_TOKEN`/`CX_BASE_URL`/`CX_MODEL` 登记为掩码，万一意外回显日志也只显示 `***`
+  - 验收 4（config 不作独立资产）：package job 上传前删除裸 `config.toml` + 断言其不存在；release 汇总 job 再断言 `release-assets/` 无任何 `*.toml`——成品 config 只藏在安装包内部
+  - 换渠道仍只改 CI Secret / `channel.env`，打包脚本本体不动（复用 US-007 的 `PLACEHOLDER_VARS` 单一映射表）
 - [x] **更新跟随流程** `scripts/update.sh`（US-012 完成）
   - `fetch 官方 → 更新 BASE_SHA/BASE_TAG → apply-patches → 冲突则诊断+回滚 → 干净重放 exit 0`
   - 查最新稳定 tag（过滤 alpha/畸形）与当前基线比对；无参已最新则 exit 0，可指定 tag（回滚/复现）

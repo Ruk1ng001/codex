@@ -255,7 +255,14 @@ jobs:
           CX_BASE_URL: ${{ secrets.CX_BASE_URL }}
           CX_TOKEN: ${{ secrets.CX_TOKEN }}
           CX_MODEL: ${{ secrets.CX_MODEL }}
-        run: bash scripts/render-config.sh dist/config.toml
+        # 渲染前先把渠道值登记为 GitHub Actions 掩码：万一后续任何步骤意外回显，
+        # 日志里也只会显示 ***，绝不出现明文 token/base_url（验收 3 的硬保证）。
+        run: |
+          set -euo pipefail
+          for v in "$CX_TOKEN" "$CX_BASE_URL" "$CX_MODEL"; do
+            [ -n "$v" ] && echo "::add-mask::$v"
+          done
+          bash scripts/render-config.sh dist/config.toml
 
       - name: 构建 .pkg（payload → /usr/local/bin/cx + postinstall 写 config）
         env:
@@ -273,10 +280,29 @@ jobs:
             --arch arm64 \
             --out "dist/cx-${CX_VERSION}-arm64.pkg"
 
-      - name: 上传 .pkg 产物
+      # 守卫（US-016 验收 4）：成品 config 含 token，只能存在于 .pkg 内部，
+      # 绝不作为独立可下载资产上传（避免被单独抓取）。上传前显式核验：
+      #   ① 确有 .pkg 产出；② 上传前删除渲染出的裸 config.toml，杜绝它进 artifact；
+      #   ③ 兜底断言 dist/ 顶层不再有独立 config.toml。
+      - name: 守卫：成品 config 不作独立资产（上传前移除裸 config）
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          pkgs=(dist/cx-*.pkg)
+          [ "${#pkgs[@]}" -gt 0 ] || { echo "::error::未产出任何 .pkg，中止发布。" >&2; exit 1; }
+          rm -f dist/config.toml
+          if [ -e dist/config.toml ]; then
+            echo "::error::dist/config.toml 仍存在，拒绝上传（防止 token 被当独立资产抓取）。" >&2
+            exit 1
+          fi
+          echo "✓ 成品 config 已嵌入 .pkg，裸 config 已从待上传目录移除。"
+
+      - name: 上传 .pkg 产物（仅 .pkg，显式排除任何裸 config）
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: release-macos-pkg
+          # 只匹配 .pkg；即便上一步遗漏，这里也不会捞到 config.toml。
           path: dist/cx-*.pkg
           if-no-files-found: error
 
@@ -310,8 +336,14 @@ jobs:
           CX_BASE_URL: ${{ secrets.CX_BASE_URL }}
           CX_TOKEN: ${{ secrets.CX_TOKEN }}
           CX_MODEL: ${{ secrets.CX_MODEL }}
+        # 同 macOS：渲染前把渠道值登记为掩码，日志即便意外回显也只见 ***（验收 3）。
         shell: bash
-        run: bash scripts/render-config.sh dist/config.toml
+        run: |
+          set -euo pipefail
+          for v in "$CX_TOKEN" "$CX_BASE_URL" "$CX_MODEL"; do
+            [ -n "$v" ] && echo "::add-mask::$v"
+          done
+          bash scripts/render-config.sh dist/config.toml
 
       - name: 安装 WiX Toolset（dotnet 全局工具 + UI 扩展）
         shell: pwsh
@@ -334,10 +366,27 @@ jobs:
             -Arch x64 `
             -Out "dist\cx-$($env:CX_VERSION)-x64.msi"
 
-      - name: 上传 .msi 产物
+      # 守卫（US-016 验收 4）：同 macOS——成品 config 只能藏在 .msi 内部，
+      # 上传前删除裸 config.toml 并断言其不存在，绝不作为独立资产暴露。
+      - name: 守卫：成品 config 不作独立资产（上传前移除裸 config）
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          msis=(dist/cx-*.msi)
+          [ "${#msis[@]}" -gt 0 ] || { echo "::error::未产出任何 .msi，中止发布。" >&2; exit 1; }
+          rm -f dist/config.toml
+          if [ -e dist/config.toml ]; then
+            echo "::error::dist/config.toml 仍存在，拒绝上传（防止 token 被当独立资产抓取）。" >&2
+            exit 1
+          fi
+          echo "✓ 成品 config 已嵌入 .msi，裸 config 已从待上传目录移除。"
+
+      - name: 上传 .msi 产物（仅 .msi，显式排除任何裸 config）
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: release-windows-msi
+          # 只匹配 .msi；即便上一步遗漏，这里也不会捞到 config.toml。
           path: dist/cx-*.msi
           if-no-files-found: error
 
@@ -379,6 +428,22 @@ jobs:
           # Windows 原生安装器（US-011），文件名含版本，直接透传。
           cp artifacts/release-windows-msi/cx-*.msi release-assets/
           ls -lh release-assets
+
+      # 守卫（US-016 验收 4）：发布资产里只应有裸二进制 + .pkg + .msi，
+      # 成品 config（含 token）只藏在安装包内部，绝不作为独立可下载资产上传到 Release。
+      # 断言待发布目录里不存在任何 config.toml；即便上游 package job 的守卫失效，
+      # 这里也会拦下，杜绝 token 被单独抓取。
+      - name: 守卫：Release 资产不含独立 config
+        shell: bash
+        run: |
+          set -euo pipefail
+          stray="$(find release-assets -name 'config.toml' -o -name '*.toml' 2>/dev/null || true)"
+          if [ -n "$stray" ]; then
+            echo "::error::待发布资产里出现独立配置文件，拒绝发布（防止 token 被当独立资产抓取）：" >&2
+            echo "$stray" >&2
+            exit 1
+          fi
+          echo "✓ Release 资产仅含裸二进制与安装包，成品 config 仅存在于 .pkg/.msi 内部。"
 
       - name: 创建 Release
         env:

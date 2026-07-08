@@ -110,6 +110,18 @@ experimental_bearer_token = "__TOKEN__"
 渲染产物 `brand/config.toml` 由安装器随包分发，首次启动经
 `installer/write-default-config.*` 幂等写入 `~/.codex/config.toml`（`CODEX_HOME` 优先）。
 
+**打包期嵌入成品 config（US-016）**：`release.yml` 的 `package_macos` / `package_windows`
+job 在打包前调 `render-config.sh` 渲染出成品 `config.toml`，再交给 `build-pkg.sh` /
+`build-msi.ps1` 打进 `.pkg` / `.msi`——安装包本身即「完整产品」，装完即用，无需任何外部
+脚本或手动配置。四条安全约定：
+
+- **渠道值只经 GitHub Secret 注入**（`CX_BASE_URL`/`CX_TOKEN`/`CX_MODEL`），绝不进 git 历史。
+- **不进 CI 日志明文**：渲染前先 `::add-mask::` 把渠道值登记为掩码，万一后续步骤误回显，
+  日志里也只显示 `***`。
+- **成品 config 不作独立可下载资产**：只藏在 `.pkg` / `.msi` 内部；package job 上传前先删掉
+  裸 `config.toml` 并断言其不存在，release 汇总 job 再兜底断言待发布目录无任何 `*.toml`。
+- **换渠道零改脚本**：同上——只改 CI Secret / `channel.env`，打包脚本本体不动。
+
 ---
 
 ## 4. 启动动画
