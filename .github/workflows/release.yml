@@ -393,26 +393,33 @@ jobs:
 
           git_sha="$(git rev-parse HEAD)"
 
-          # Release 说明：标注对应上游 tag 与本次定制版本。
+          # Release 说明：标注对应上游 tag 与本次定制版本，并以原生安装包为主分发物。
           cat > /tmp/release-notes.md <<EOF
           基于 openai/codex 的定制跟随版本（命令名 \`cx\`）。
 
           - 上游 release tag：\`${UPSTREAM_TAG}\`（openai/codex）
           - 本次定制版本：\`${custom_tag}\`
 
-          ## 包含产物
-          - \`cx-${custom_tag}-x64.msi\`（Windows x64 原生安装器，双击按向导安装）
-          - \`cx-${custom_tag}-arm64.pkg\`（macOS Apple Silicon 原生安装包，双击安装）
-          - \`cx-aarch64-apple-darwin\`（macOS Apple Silicon 裸二进制，配合 install.sh）
-          - \`cx-x86_64-pc-windows-msvc.exe\`（Windows x64 裸二进制，配合 install.ps1）
+          ## 安装包（推荐 · 主分发物）
+          双击按向导安装，装完新开终端直接输入 \`cx\` 即可使用（自动写入内置渠道配置、加入 PATH）。
+
+          | 平台 | 下载 | 安装/卸载说明 |
+          | --- | --- | --- |
+          | macOS (Apple Silicon) | \`cx-${custom_tag}-arm64.pkg\` | \`installer/macos-pkg/README.md\`（含 Gatekeeper 绕过） |
+          | Windows (x64) | \`cx-${custom_tag}-x64.msi\` | \`installer/windows-msi/README.md\`（含 SmartScreen 绕过） |
+
+          ### 安装指引
+          - **macOS**：双击 \`.pkg\` 按向导安装。若被 Gatekeeper 拦截，右键「打开」或执行
+            \`xattr -d com.apple.quarantine <pkg>\`（详见 README）。
+          - **Windows**：双击 \`.msi\` 按向导安装（可选安装目录）。若 SmartScreen 提示，点「更多信息 → 仍要运行」。
+
+          ## 附加资产（裸二进制 · 高级/自动化场景）
+          需自行配合安装脚本放置二进制、写配置、加 PATH，常规用户请优先用上面的安装包。
+
+          - \`cx-aarch64-apple-darwin\`（macOS Apple Silicon 裸二进制，配合 \`installer/install.sh\`）
+          - \`cx-x86_64-pc-windows-msvc.exe\`（Windows x64 裸二进制，配合 \`installer/install.ps1\`）
 
           > macOS Intel（x86_64）因 CI runner 资源紧张暂时未发布。
-
-          Windows 用户推荐下载 \`.msi\` 双击按向导安装（装完新开终端直接 \`cx\`）。安装/卸载与
-          SmartScreen 绕过说明见 \`installer/windows-msi/README.md\`。
-          macOS 用户推荐下载 \`.pkg\` 双击安装。安装/卸载与 Gatekeeper 说明见
-          \`installer/macos-pkg/README.md\`。裸二进制安装参见 \`installer/\` 下的
-          install.sh（Mac）/ install.ps1（Windows）。
           EOF
 
           gh release create "$custom_tag" \
