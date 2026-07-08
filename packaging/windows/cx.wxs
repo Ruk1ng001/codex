@@ -98,7 +98,11 @@
            - Return="ignore"：同步执行但忽略退出码 —— 写配置失败不使整包安装失败
              （二进制已装好，cx 仍可用），与 macOS pkg 的 postinstall「失败只 warn」一致。
            - Condition NOT Installed：仅首装 / 主版本升级时运行（幂等重跑无副作用），
-             修复 / 卸载不重复触发。 -->
+             修复 / 卸载不重复触发。
+           - 卸载时保留用户数据（US-019 验收 5）：本动作写入的 %USERPROFILE%\.codex\config.toml
+             不是 MSI 组件（未在任何 <Component> 里以 File/RemoveFile 登记），故不受卸载移除；
+             卸载只删 INSTALLFOLDER 里的 cx.exe / config.toml 副本 / writer 脚本，绝不碰用户
+             ~/.codex 下的个人配置。 -->
     <CustomAction Id="WriteDefaultConfig"
         Directory="INSTALLFOLDER"
         ExeCommand="[System64Folder]WindowsPowerShell\v1.0\powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -WindowStyle Hidden -File &quot;[INSTALLFOLDER]write-default-config.ps1&quot; -SourceConfig &quot;[INSTALLFOLDER]config.toml&quot;"

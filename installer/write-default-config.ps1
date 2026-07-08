@@ -1,13 +1,18 @@
 <#
 .SYNOPSIS
-  首启动幂等写入(Windows 安装器)——把内置渠道配置写入 ~/.codex/config.toml。
+  首启动幂等写入(Windows 安装器)——把内置渠道配置写入 %USERPROFILE%\.codex\config.toml。
 
 .DESCRIPTION
   目标：用户首次启动就有可用配置，且绝不覆盖其后续的手动修改。
 
   ── 行为契约（与 installer/write-default-config.sh 逐条对齐）─────────────
     1. 配置目录：尊重 $env:CODEX_HOME（与 codex 本体解析一致），未设置则用
-       $HOME/.codex（保持官方默认目录，不改动）。配置文件固定为 <目录>/config.toml。
+       %USERPROFILE%\.codex（保持官方默认目录，不改动）。配置文件固定为 <目录>\config.toml。
+       ⚠ Windows 用 $env:USERPROFILE 而非 PowerShell 的 $HOME：codex 本体（Rust）
+       用 dirs::home_dir() 解析 home，Windows 上它返回 %USERPROFILE%（FOLDERID_Profile），
+       而 PowerShell 的 $HOME 是 $env:HOMEDRIVE$env:HOMEPATH，域环境下二者可能不一致，
+       若用 $HOME 写入会导致 codex 读不到本脚本写的配置（US-019）。bash 版对应用 $HOME，
+       因为 Unix 上 dirs::home_dir() 就是读 $HOME，两端各自与 codex 本体解析一致。
     2. 幂等判定：目标 config.toml 已存在且含段头 [model_providers.newapi]
        ⇒ 完全不动，尊重用户的手动修改（幂等，退出码 0）。
     3. 不存在      ⇒ 创建目录并写入内置渠道配置。
@@ -40,10 +45,16 @@ if ([string]::IsNullOrEmpty($SourceConfig)) {
     $SourceConfig = Join-Path $scriptDir 'config.toml'
 }
 
-# 配置目录：CODEX_HOME 优先，否则 $HOME/.codex（保持不变）。
+# 配置目录：CODEX_HOME 优先，否则 %USERPROFILE%\.codex（保持不变）。
+# 用 $env:USERPROFILE 而非 $HOME：与 codex 本体 dirs::home_dir() 的 Windows 解析一致（见顶部说明）。
 $codexHome = $env:CODEX_HOME
 if ([string]::IsNullOrEmpty($codexHome)) {
-    $codexHome = Join-Path $HOME '.codex'
+    $userProfile = $env:USERPROFILE
+    if ([string]::IsNullOrEmpty($userProfile)) {
+        # 极少数无 %USERPROFILE% 的环境（如某些精简/服务账户）回退到 $HOME，避免直接失败。
+        $userProfile = $HOME
+    }
+    $codexHome = Join-Path $userProfile '.codex'
 }
 $configPath = Join-Path $codexHome 'config.toml'
 
