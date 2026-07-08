@@ -85,20 +85,23 @@
     install.ps1               # Windows 安装器：本地二进制 + 写 config + 加 PATH + 命令名 cx ✅
     write-default-config.sh   # 首启动幂等写入 config.toml（Mac/Linux）✅
     write-default-config.ps1  # 首启动幂等写入 config.toml（Windows，与 .sh 行为对齐）✅
-    macos-pkg/                # macOS 原生 .pkg 安装包（US-010）
+  packaging/                # 原生安装包打包脚本（集中存放，被 CI 打包工作流调用，US-017）
+    macos/                    # macOS 原生 .pkg 安装包（US-010，US-017 迁入 packaging/）
       build-pkg.sh              # pkgbuild+productbuild 构建 .pkg（payload→/usr/local/bin/cx + postinstall 写 config，可选签名/公证）✅
       scripts/postinstall       # 安装后脚本：以登录用户身份幂等写内置渠道 config ✅
       uninstall.sh              # 卸载脚本：移除二进制 + forget 收据（配置默认保留）✅
       README.md                 # 安装/卸载 + Gatekeeper（右键打开/xattr）说明 ✅
-    windows-msi/              # Windows 原生 .msi 安装器（US-011）
+    windows/                  # Windows 原生 .msi 安装器（US-011，US-017 迁入 packaging/）
       cx.wxs                    # WiX 源文件：目录/组件/用户PATH/ARP卸载项/安装后幂等写 config 自定义动作 ✅
       build-msi.ps1             # 构建脚本（调 wix build），只在 Windows 跑；含可选 Authenticode 签名 ✅
       License.rtf               # 安装向导许可页文本 ✅
       README.md                 # 安装/卸载 + SmartScreen（仍要运行/Unblock）说明 ✅
   .github/workflows/
     build.yml               # 可复用多平台编译（workflow_call）：submodule→apply-patches→cargo build ✅
+    package-macos.yml       # 可复用打包（workflow_call）：渲染 config→build-pkg.sh→产 .pkg（US-017）✅
+    package-windows.yml     # 可复用打包（workflow_call）：渲染 config→build-msi.ps1→产 .msi（US-017）✅
     ci.yml                  # CI 入口：校验补丁可应用 + 复用 build.yml 多平台编译 ✅
-    release.yml             # 自动检测+发布：schedule/dispatch→update.sh→复用 build.yml→gh release ✅
+    release.yml             # 自动检测+发布：schedule/dispatch→update.sh→复用 build.yml + 打包工作流→gh release ✅
   .gitignore                # 忽略真实值(channel.env)、渲染产物(config.toml/dist)、工作文件 ✅
   README.md                 # 面向用户：下载安装包双击安装 + Gatekeeper/SmartScreen 绕过 + 卸载 ✅
   CUSTOMIZATION.md          # 定制替换点清单：命令名/品牌名/渠道/动画 + 原生安装包替换点 + 更新发布流程 ✅
@@ -183,14 +186,14 @@
   - 本地二进制（`-Binary`/`CX_BINARY`/按架构自动探测 `cx-<target>.exe`）+ 调 `write-default-config.ps1` 写 config + 命令名 `cx`
   - 支持 x64（`x86_64-pc-windows-msvc`）与 arm64（`aarch64-pc-windows-msvc`）
   - 二进制装成 `$CX_INSTALL_DIR`（默认 `%LOCALAPPDATA%\Programs\cx\bin`）下单文件 `cx.exe`；PATH 写用户环境变量，PowerShell + CMD 新会话都生效
-- [x] **macOS 原生安装包 `.pkg`** `installer/macos-pkg/`（US-010 完成）
+- [x] **macOS 原生安装包 `.pkg`** `packaging/macos/`（US-010 完成）
   - `build-pkg.sh`：`pkgbuild`（payload → `/usr/local/bin/cx`，0755）+ `productbuild`（distribution.xml 向导）产出可双击 `.pkg`；只在 macOS runner 跑
   - `scripts/postinstall`：以登录 GUI 用户（`stat -f%Su /dev/console`）身份调 `write-default-config.sh` 幂等写 `~/.codex/config.toml`（复用 US-008 契约，不覆盖用户配置）
   - `uninstall.sh`：移除 `/usr/local/bin/cx` + `pkgutil --forget`；配置默认保留（`--purge-config` 才删）
   - `README.md`：安装/卸载/Gatekeeper「右键打开」与 `xattr` 去隔离绕过说明
   - 可选签名/公证：`CX_SIGN_IDENTITY`（Developer ID Installer）+ `CX_NOTARIZE_PROFILE`（notarytool）配置了才生效
   - 仅 arm64（与 build.yml 一致，Intel 暂停）；release.yml 新增 `version` + `package_macos` job，`.pkg` 随 Release 分发
-- [x] **Windows 原生安装器 `.msi`** `installer/windows-msi/`（US-011 完成）
+- [x] **Windows 原生安装器 `.msi`** `packaging/windows/`（US-011 完成）
   - `cx.wxs`：WiX Toolset(v5/v4) 源文件，`WixUI_InstallDir` 向导（欢迎→许可→选目录→确认→进度→完成），`Scope="perUser"` 免管理员装到 `%LOCALAPPDATA%\Programs\cx`
   - PATH：`Environment` 元素写**用户级** PATH（`System="no"`），PowerShell + CMD 新会话都生效；卸载时移除
   - ARP 卸载入口：MSI 标准机制自动登记 DisplayName/版本/Publisher/卸载命令（`MajorUpgrade` 处理升级）
@@ -204,6 +207,12 @@
   - 验收 3（日志不泄漏明文）：渲染前 `::add-mask::` 把 `CX_TOKEN`/`CX_BASE_URL`/`CX_MODEL` 登记为掩码，万一意外回显日志也只显示 `***`
   - 验收 4（config 不作独立资产）：package job 上传前删除裸 `config.toml` + 断言其不存在；release 汇总 job 再断言 `release-assets/` 无任何 `*.toml`——成品 config 只藏在安装包内部
   - 换渠道仍只改 CI Secret / `channel.env`，打包脚本本体不动（复用 US-007 的 `PLACEHOLDER_VARS` 单一映射表）
+- [x] **CI 打包原生安装包（可复用打包步骤）** `packaging/` + `package-{macos,windows}.yml`（US-017 完成）
+  - 打包脚本集中存放于 `packaging/macos/`（`build-pkg.sh` + `scripts/postinstall`）、`packaging/windows/`（`build-msi.ps1` + `cx.wxs` + `License.rtf`）——从 `installer/macos-pkg/`、`installer/windows-msi/` 迁移而来
+  - 新增可复用打包工作流 `.github/workflows/package-macos.yml` / `package-windows.yml`（`workflow_call`）：输入=编译产物二进制 + 版本 + ref，内部渲染成品配置并调 `packaging/` 打包脚本，输出=该平台原生安装包 artifact
+  - `release.yml` 的 `package_macos`/`package_windows` 由内联步骤改为 `uses:` 复用这两个可复用工作流，渠道 Secret 经 `secrets:` 传入
+  - 产物命名体现平台+版本：`cx-<version>-arm64.pkg` / `cx-<version>-x64.msi`
+  - token 只在可复用工作流内的「渲染成品配置」阶段经 Secret 注入并 `::add-mask::` 掩码，打包日志不回显密钥；本机不打包，全在 macos-14 / windows-latest runner
 - [x] **更新跟随流程** `scripts/update.sh`（US-012 完成）
   - `fetch 官方 → 更新 BASE_SHA/BASE_TAG → apply-patches → 冲突则诊断+回滚 → 干净重放 exit 0`
   - 查最新稳定 tag（过滤 alpha/畸形）与当前基线比对；无参已最新则 exit 0，可指定 tag（回滚/复现）
@@ -222,8 +231,8 @@
 - [ ] **M2 内置渠道**：验证免登录进入 + 能对话
 - [ ] **M3 补丁**：命令名 + 中文化，重编译验证
 - [ ] **M4 打包分发**：mac + win 安装器 + macOS 原生 `.pkg`（US-010）+ Windows 原生 `.msi`（US-011），端到端走一遍
-      —— `.pkg` 打包脚本（`installer/macos-pkg/`）+ release.yml `package_macos` job、
-      `.msi` 打包脚本（`installer/windows-msi/`）+ release.yml `package_windows` job 已落地，
+      —— `.pkg` 打包脚本（`packaging/macos/`）+ release.yml `package_macos` job、
+      `.msi` 打包脚本（`packaging/windows/`）+ release.yml `package_windows` job 已落地，
       待推 GitHub 后由 CI 在 macos / windows runner 实跑产出并验证双击安装
 - [x] **M5 更新机制**：`scripts/update.sh`（US-012）本地实跑四路径通过 + `release.yml`（US-013）自动检测+发布；待推 GitHub 后由定时/手动触发实跑验证
 

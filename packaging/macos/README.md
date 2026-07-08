@@ -61,7 +61,7 @@ xattr -d com.apple.quarantine ~/Downloads/cx-<版本>-arm64.pkg
 `.pkg` 没有原生卸载器，需手动移除。仓库提供了脚本化的卸载步骤：
 
 ```sh
-sudo installer/macos-pkg/uninstall.sh
+sudo packaging/macos/uninstall.sh
 ```
 
 它会：
@@ -72,7 +72,7 @@ sudo installer/macos-pkg/uninstall.sh
 **配置文件默认保留**（`~/.codex/config.toml` 可能已被你手动修改）。如需一并删除：
 
 ```sh
-sudo installer/macos-pkg/uninstall.sh --purge-config
+sudo packaging/macos/uninstall.sh --purge-config
 ```
 
 ### 手动卸载（不用脚本）
@@ -93,13 +93,13 @@ rm -f ~/.codex/config.toml             # （可选）删配置
 
 1. 下载 `build.yml` 编译产出的 `cx`（arm64）二进制；
 2. `scripts/render-config.sh` 渲染成品 `config.toml`（渠道值经 GitHub Secret 注入）；
-3. `installer/macos-pkg/build-pkg.sh` 组装 payload + postinstall，调
+3. `packaging/macos/build-pkg.sh` 组装 payload + postinstall，调
    `pkgbuild`/`productbuild` 产出 `.pkg`。
 
 本地在 Mac 上手动构建（需已有编译好的二进制与渲染好的 config）：
 
 ```sh
-installer/macos-pkg/build-pkg.sh \
+packaging/macos/build-pkg.sh \
   --binary path/to/cx \
   --config path/to/config.toml \
   --version 0.142.5-cx.1 \
@@ -110,7 +110,7 @@ installer/macos-pkg/build-pkg.sh \
 **目录结构**：
 
 ```
-installer/macos-pkg/
+packaging/macos/
   build-pkg.sh          # 构建脚本（pkgbuild + productbuild），只在 macOS 跑
   uninstall.sh          # 卸载脚本（删二进制 + forget 收据，配置默认保留）
   README.md             # 本文件

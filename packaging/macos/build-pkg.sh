@@ -7,14 +7,14 @@
 #
 # ── 设计约定（与本仓既有工作流一致）──────────────────────────────────
 #   - 本机（维护者 ARM64 Linux）不参与打包：pkgbuild/productbuild 是 macOS 专有工具，
-#     本脚本只在 CI 的 macos runner 上跑（见 .github/workflows/build.yml 的 package job）。
+#     本脚本只在 CI 的 macos runner 上跑（见 .github/workflows/package-macos.yml 可复用工作流）。
 #   - 二进制由 build.yml 编译产出（US-009），config.toml 由 render-config.sh 渲染（US-007），
 #     两者作为输入传入本脚本，绝不在此重编译，token 也不落进 git。
 #   - config 幂等写入复用 installer/write-default-config.sh（US-008）的行为契约，
 #     不在 postinstall 里重复实现。
 #
 # 用法：
-#   installer/macos-pkg/build-pkg.sh --binary PATH --config PATH --version VER [--out PATH] [--arch ARCH]
+#   packaging/macos/build-pkg.sh --binary PATH --config PATH --version VER [--out PATH] [--arch ARCH]
 # 环境变量（等价 flag，flag 优先）：
 #   CX_BINARY   cx 二进制路径（编译产物，如 dist/cx）
 #   CX_CONFIG   成品 config.toml 路径（render-config.sh 渲染产物）
@@ -91,7 +91,7 @@ done
 command -v pkgbuild     >/dev/null 2>&1 || die "缺少 pkgbuild（本脚本只能在 macOS 上运行）。"
 command -v productbuild >/dev/null 2>&1 || die "缺少 productbuild（本脚本只能在 macOS 上运行）。"
 
-writer="$script_dir/../write-default-config.sh"
+writer="$script_dir/../../installer/write-default-config.sh"
 [ -f "$writer" ] || die "找不到 $writer（首启动幂等写入脚本，US-008）。"
 
 [ -n "$arch" ] || arch="$(uname -m 2>/dev/null || echo unknown)"

@@ -3,13 +3,13 @@
   用 WiX Toolset 构建 cx CLI 的 Windows 原生安装器（.msi）(US-011)。
 
 .DESCRIPTION
-  只在 CI 的 Windows runner 上跑（见 .github/workflows/release.yml 的 package_windows job）；
+  只在 CI 的 Windows runner 上跑（见 .github/workflows/package-windows.yml 可复用工作流）；
   本机（维护者 ARM64 Linux）不参与打包 —— WiX/MSI 是 Windows 工具链，与 macOS .pkg 一样。
 
   职责：把编译产物 cx.exe + 渲染好的 config.toml + US-008 幂等写入脚本组装成一个 .msi，
   产物双击即弹图形化安装向导（选目录 / 进度 / 完成页），装完写用户 PATH + 登记 ARP 卸载入口。
 
-  ── 输入从哪来（与 macos-pkg/build-pkg.sh 的分工一致）──────────────────
+  ── 输入从哪来（与 packaging/macos/build-pkg.sh 的分工一致）──────────────────
     - cx.exe        由 build.yml 编译产出（US-009），不在此重编译。
     - config.toml   由 scripts/render-config.sh 渲染（US-007，渠道值经 CI Secret 注入），含 token。
     - writer        installer/write-default-config.ps1（US-008），复用其幂等契约，不重复实现。
@@ -34,7 +34,7 @@
   输出 .msi 路径。等价 CX_MSI_OUT，默认 dist\cx-<version>-<arch>.msi。
 
 .EXAMPLE
-  installer\windows-msi\build-msi.ps1 -Binary dist\cx.exe -Config dist\config.toml -Version 0.142.5-cx.1 -Arch x64
+  packaging\windows\build-msi.ps1 -Binary dist\cx.exe -Config dist\config.toml -Version 0.142.5-cx.1 -Arch x64
 #>
 [CmdletBinding()]
 param(
@@ -61,7 +61,7 @@ if (-not (Test-Path -LiteralPath $Config -PathType Leaf)) { Die "找不到成品
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $wxs    = Join-Path $scriptDir "cx.wxs"
-$writer = Join-Path $scriptDir "..\write-default-config.ps1"
+$writer = Join-Path $scriptDir "..\..\installer\write-default-config.ps1"
 $license = Join-Path $scriptDir "License.rtf"
 
 foreach ($f in @($wxs, $writer, $license)) {

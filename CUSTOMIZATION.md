@@ -171,7 +171,7 @@ job 在打包前调 `render-config.sh` 渲染出成品 `config.toml`，再交给
 | 二进制探测名 | `installer/install.sh` / `install.ps1` | `cx-<target>` / `cx-<target>.exe`，**须与 `build.yml` 产物命名对齐** |
 | 命令名 | `installer/install.sh` / `install.ps1` | `cx`（与替换点 1 的 `COMMAND_NAME` 保持一致） |
 
-### 5.2 macOS 原生 `.pkg`（`installer/macos-pkg/`）
+### 5.2 macOS 原生 `.pkg`（`packaging/macos/`）
 
 | 替换点 | 文件 | 说明 / 修改方法 |
 |---|---|---|
@@ -186,7 +186,7 @@ job 在打包前调 `render-config.sh` 渲染出成品 `config.toml`，再交给
 > ⚠️ 改 `PKG_IDENTIFIER` 时 `build-pkg.sh` 与 `uninstall.sh` 两处必须同步，否则卸载
 > 脚本无法遗忘安装收据。
 
-### 5.3 Windows 原生 `.msi`（`installer/windows-msi/`）
+### 5.3 Windows 原生 `.msi`（`packaging/windows/`）
 
 | 替换点 | 文件 | 说明 / 修改方法 |
 |---|---|---|

@@ -90,7 +90,7 @@ Unblock-File .\cx-<版本>-x64.msi
 
 1. 下载 `build.yml` 编译产出的 `cx.exe`（x64）；
 2. `scripts/render-config.sh` 渲染成品 `config.toml`（渠道值经 GitHub Secret 注入）；
-3. `installer/windows-msi/build-msi.ps1` 调 WiX 把二进制 + config + 幂等写入脚本组装成 `.msi`。
+3. `packaging/windows/build-msi.ps1` 调 WiX 把二进制 + config + 幂等写入脚本组装成 `.msi`。
 
 本地在 Windows 上手动构建（需已装 WiX 与 UI 扩展、已有编译好的二进制与渲染好的 config）：
 
@@ -100,7 +100,7 @@ dotnet tool install --global wix
 wix extension add --global WixToolset.UI.wixext
 
 # 构建
-installer\windows-msi\build-msi.ps1 `
+packaging\windows\build-msi.ps1 `
   -Binary path\to\cx.exe `
   -Config path\to\config.toml `
   -Version 0.142.5-cx.1 `
@@ -111,7 +111,7 @@ installer\windows-msi\build-msi.ps1 `
 **目录结构**：
 
 ```
-installer/windows-msi/
+packaging/windows/
   cx.wxs          # WiX 源文件：定义 .msi（目录/组件/PATH/ARP/配置写入自定义动作）
   build-msi.ps1   # 构建脚本（调 wix），只在 Windows 跑；含可选 Authenticode 签名
   License.rtf     # 安装向导许可页文本

@@ -43,7 +43,7 @@
   xattr -d com.apple.quarantine ~/Downloads/cx-<版本>-arm64.pkg
   ```
 
-详见 [installer/macos-pkg/README.md](installer/macos-pkg/README.md)。
+详见 [packaging/macos/README.md](packaging/macos/README.md)。
 
 ### Windows：双击安装
 
@@ -59,7 +59,7 @@
 - **解除锁定**：右键 `.msi` →「属性」→ 勾选「解除锁定 / Unblock」→ 确定；
   或在 PowerShell 里 `Unblock-File .\cx-<版本>-x64.msi`。
 
-详见 [installer/windows-msi/README.md](installer/windows-msi/README.md)。
+详见 [packaging/windows/README.md](packaging/windows/README.md)。
 
 ---
 
@@ -70,8 +70,8 @@
 `.pkg` 没有原生卸载器，用仓库提供的卸载脚本：
 
 ```sh
-sudo installer/macos-pkg/uninstall.sh            # 删二进制 + forget 收据，配置默认保留
-sudo installer/macos-pkg/uninstall.sh --purge-config  # 同时删除 ~/.codex/config.toml
+sudo packaging/macos/uninstall.sh            # 删二进制 + forget 收据，配置默认保留
+sudo packaging/macos/uninstall.sh --purge-config  # 同时删除 ~/.codex/config.toml
 ```
 
 或手动：

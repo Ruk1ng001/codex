@@ -12,12 +12,12 @@
 #   ~/.codex/config.toml           —— 用户配置，可能已被手动修改，默认不动
 #
 # 用法：
-#   installer/macos-pkg/uninstall.sh [--purge-config] [--yes]
+#   packaging/macos/uninstall.sh [--purge-config] [--yes]
 #     --purge-config   一并删除 ~/.codex/config.toml（默认保留）
 #     --yes            跳过确认提示（非交互场景）
 #
 # 需要写 /usr/local/bin 与执行 pkgutil --forget，通常需 sudo：
-#   sudo installer/macos-pkg/uninstall.sh
+#   sudo packaging/macos/uninstall.sh
 set -eu
 
 BIN_PATH="/usr/local/bin/cx"

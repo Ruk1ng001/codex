@@ -222,173 +222,48 @@ jobs:
           echo "上游 tag：${UPSTREAM_TAG} → 定制版本：${custom_tag}"
           echo "custom_tag=$custom_tag" >> "$GITHUB_OUTPUT"
 
-  # —— 4. 在 macOS runner 上构建原生 .pkg（US-010） ——
-  # pkgbuild/productbuild 是 macOS 专有工具，必须在 macos runner 跑。
-  # 这一步会把渠道 config（含 token）渲染进 pkg，故只在发布流程里做，且经 Secret 注入。
+  # —— 4. 复用打包工作流：把编译产物 + 成品配置打成 macOS 原生 .pkg（US-017） ——
+  # 打包逻辑抽成可复用工作流 package-macos.yml（workflow_call），这里 uses 复用；
+  # 具体打包实现（pkgbuild/productbuild）在 packaging/macos/build-pkg.sh。
+  # 渠道 token 经 Secret 传给可复用工作流，在其内部渲染阶段注入并掩码，日志不回显。
   package_macos:
     name: 构建 macOS .pkg
     needs: [detect, build, version]
     if: needs.detect.outputs.should_release == 'true'
-    runs-on: macos-14
-    timeout-minutes: 20
     permissions:
       contents: read
-    steps:
-      - name: Checkout（基线更新后的 commit，取到 installer/ 与 brand/ 脚本）
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ needs.detect.outputs.ref }}
-          persist-credentials: false
+    uses: ./.github/workflows/package-macos.yml
+    with:
+      ref: ${{ needs.detect.outputs.ref }}
+      version: ${{ needs.version.outputs.custom_tag }}
+      arch: arm64
+    secrets:
+      CX_BASE_URL: ${{ secrets.CX_BASE_URL }}
+      CX_TOKEN: ${{ secrets.CX_TOKEN }}
+      CX_MODEL: ${{ secrets.CX_MODEL }}
+      CX_SIGN_IDENTITY: ${{ secrets.CX_SIGN_IDENTITY }}
+      CX_NOTARIZE_PROFILE: ${{ secrets.CX_NOTARIZE_PROFILE }}
 
-      - name: 下载 arm64 编译产物
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: release-aarch64-apple-darwin
-          path: dist
-
-      # render-config.sh 用了 declare -A（bash 4+），macOS 自带 /bin/bash 是 3.2。
-      - name: 安装现代 bash（供 render-config.sh 使用）
-        run: brew install bash
-
-      - name: 渲染成品 config（占位符 → 真实渠道值，经 Secret 注入）
-        env:
-          CX_BASE_URL: ${{ secrets.CX_BASE_URL }}
-          CX_TOKEN: ${{ secrets.CX_TOKEN }}
-          CX_MODEL: ${{ secrets.CX_MODEL }}
-        # 渲染前先把渠道值登记为 GitHub Actions 掩码：万一后续任何步骤意外回显，
-        # 日志里也只会显示 ***，绝不出现明文 token/base_url（验收 3 的硬保证）。
-        run: |
-          set -euo pipefail
-          for v in "$CX_TOKEN" "$CX_BASE_URL" "$CX_MODEL"; do
-            [ -n "$v" ] && echo "::add-mask::$v"
-          done
-          bash scripts/render-config.sh dist/config.toml
-
-      - name: 构建 .pkg（payload → /usr/local/bin/cx + postinstall 写 config）
-        env:
-          CX_VERSION: ${{ needs.version.outputs.custom_tag }}
-          # 可选签名/公证：配置了对应 Secret 才生效，否则产出未签名 .pkg。
-          CX_SIGN_IDENTITY: ${{ secrets.CX_SIGN_IDENTITY }}
-          CX_NOTARIZE_PROFILE: ${{ secrets.CX_NOTARIZE_PROFILE }}
-        run: |
-          set -euo pipefail
-          chmod +x dist/cx
-          bash installer/macos-pkg/build-pkg.sh \
-            --binary dist/cx \
-            --config dist/config.toml \
-            --version "$CX_VERSION" \
-            --arch arm64 \
-            --out "dist/cx-${CX_VERSION}-arm64.pkg"
-
-      # 守卫（US-016 验收 4）：成品 config 含 token，只能存在于 .pkg 内部，
-      # 绝不作为独立可下载资产上传（避免被单独抓取）。上传前显式核验：
-      #   ① 确有 .pkg 产出；② 上传前删除渲染出的裸 config.toml，杜绝它进 artifact；
-      #   ③ 兜底断言 dist/ 顶层不再有独立 config.toml。
-      - name: 守卫：成品 config 不作独立资产（上传前移除裸 config）
-        shell: bash
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          pkgs=(dist/cx-*.pkg)
-          [ "${#pkgs[@]}" -gt 0 ] || { echo "::error::未产出任何 .pkg，中止发布。" >&2; exit 1; }
-          rm -f dist/config.toml
-          if [ -e dist/config.toml ]; then
-            echo "::error::dist/config.toml 仍存在，拒绝上传（防止 token 被当独立资产抓取）。" >&2
-            exit 1
-          fi
-          echo "✓ 成品 config 已嵌入 .pkg，裸 config 已从待上传目录移除。"
-
-      - name: 上传 .pkg 产物（仅 .pkg，显式排除任何裸 config）
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
-        with:
-          name: release-macos-pkg
-          # 只匹配 .pkg；即便上一步遗漏，这里也不会捞到 config.toml。
-          path: dist/cx-*.pkg
-          if-no-files-found: error
-
-  # —— 4b. 在 Windows runner 上构建原生 .msi（US-011） ——
-  # WiX/MSI 是 Windows 工具链，必须在 windows runner 跑。
-  # 这一步会把渠道 config（含 token）渲染进 msi，故只在发布流程里做，且经 Secret 注入。
+  # —— 4b. 复用打包工作流：把编译产物 + 成品配置打成 Windows 原生 .msi（US-017） ——
+  # 打包逻辑抽成可复用工作流 package-windows.yml（workflow_call），这里 uses 复用；
+  # 具体打包实现（WiX build-msi.ps1 + cx.wxs）在 packaging/windows/。
   package_windows:
     name: 构建 Windows .msi
     needs: [detect, build, version]
     if: needs.detect.outputs.should_release == 'true'
-    runs-on: windows-latest
-    timeout-minutes: 30
     permissions:
       contents: read
-    steps:
-      - name: Checkout（基线更新后的 commit，取到 installer/ 与 brand/ 脚本）
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ needs.detect.outputs.ref }}
-          persist-credentials: false
-
-      - name: 下载 Windows x64 编译产物
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: release-x86_64-pc-windows-msvc
-          path: dist
-
-      # render-config.sh 用了 declare -A（bash 4+）；windows runner 的 git-bash 是 bash 4+，可直接跑。
-      - name: 渲染成品 config（占位符 → 真实渠道值，经 Secret 注入）
-        env:
-          CX_BASE_URL: ${{ secrets.CX_BASE_URL }}
-          CX_TOKEN: ${{ secrets.CX_TOKEN }}
-          CX_MODEL: ${{ secrets.CX_MODEL }}
-        # 同 macOS：渲染前把渠道值登记为掩码，日志即便意外回显也只见 ***（验收 3）。
-        shell: bash
-        run: |
-          set -euo pipefail
-          for v in "$CX_TOKEN" "$CX_BASE_URL" "$CX_MODEL"; do
-            [ -n "$v" ] && echo "::add-mask::$v"
-          done
-          bash scripts/render-config.sh dist/config.toml
-
-      - name: 安装 WiX Toolset（dotnet 全局工具 + UI 扩展）
-        shell: pwsh
-        run: |
-          dotnet tool install --global wix
-          wix extension add -g WixToolset.UI.wixext
-
-      - name: 构建 .msi（装 cx.exe + 写用户 PATH + ARP 卸载项 + 幂等写 config）
-        shell: pwsh
-        env:
-          CX_VERSION: ${{ needs.version.outputs.custom_tag }}
-          # 可选 Authenticode 代码签名：配置了对应 Secret 才生效，否则产出未签名 .msi。
-          CX_SIGN_PFX_BASE64: ${{ secrets.CX_SIGN_PFX_BASE64 }}
-          CX_SIGN_PFX_PASSWORD: ${{ secrets.CX_SIGN_PFX_PASSWORD }}
-        run: |
-          installer\windows-msi\build-msi.ps1 `
-            -Binary dist\cx.exe `
-            -Config dist\config.toml `
-            -Version $env:CX_VERSION `
-            -Arch x64 `
-            -Out "dist\cx-$($env:CX_VERSION)-x64.msi"
-
-      # 守卫（US-016 验收 4）：同 macOS——成品 config 只能藏在 .msi 内部，
-      # 上传前删除裸 config.toml 并断言其不存在，绝不作为独立资产暴露。
-      - name: 守卫：成品 config 不作独立资产（上传前移除裸 config）
-        shell: bash
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          msis=(dist/cx-*.msi)
-          [ "${#msis[@]}" -gt 0 ] || { echo "::error::未产出任何 .msi，中止发布。" >&2; exit 1; }
-          rm -f dist/config.toml
-          if [ -e dist/config.toml ]; then
-            echo "::error::dist/config.toml 仍存在，拒绝上传（防止 token 被当独立资产抓取）。" >&2
-            exit 1
-          fi
-          echo "✓ 成品 config 已嵌入 .msi，裸 config 已从待上传目录移除。"
-
-      - name: 上传 .msi 产物（仅 .msi，显式排除任何裸 config）
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
-        with:
-          name: release-windows-msi
-          # 只匹配 .msi；即便上一步遗漏，这里也不会捞到 config.toml。
-          path: dist/cx-*.msi
-          if-no-files-found: error
+    uses: ./.github/workflows/package-windows.yml
+    with:
+      ref: ${{ needs.detect.outputs.ref }}
+      version: ${{ needs.version.outputs.custom_tag }}
+      arch: x64
+    secrets:
+      CX_BASE_URL: ${{ secrets.CX_BASE_URL }}
+      CX_TOKEN: ${{ secrets.CX_TOKEN }}
+      CX_MODEL: ${{ secrets.CX_MODEL }}
+      CX_SIGN_PFX_BASE64: ${{ secrets.CX_SIGN_PFX_BASE64 }}
+      CX_SIGN_PFX_PASSWORD: ${{ secrets.CX_SIGN_PFX_PASSWORD }}
 
   # —— 5. 汇总产物 → 创建 GitHub Release ——
   release:
@@ -470,8 +345,8 @@ jobs:
 
           | 平台 | 下载 | 安装/卸载说明 |
           | --- | --- | --- |
-          | macOS (Apple Silicon) | \`cx-${custom_tag}-arm64.pkg\` | \`installer/macos-pkg/README.md\`（含 Gatekeeper 绕过） |
-          | Windows (x64) | \`cx-${custom_tag}-x64.msi\` | \`installer/windows-msi/README.md\`（含 SmartScreen 绕过） |
+          | macOS (Apple Silicon) | \`cx-${custom_tag}-arm64.pkg\` | \`packaging/macos/README.md\`（含 Gatekeeper 绕过） |
+          | Windows (x64) | \`cx-${custom_tag}-x64.msi\` | \`packaging/windows/README.md\`（含 SmartScreen 绕过） |
 
           ### 安装指引
           - **macOS**：双击 \`.pkg\` 按向导安装。若被 Gatekeeper 拦截，右键「打开」或执行

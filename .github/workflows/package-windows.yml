@@ -1,0 +1,142 @@
+# 可复用打包工作流：把「编译产出的 cx.exe + 成品配置」打成 Windows 原生 .msi 安装器（US-017）。
+#
+# 定位（US-017 验收 1/4）：
+#   - 这是一个 workflow_call 可复用工作流——把原先内联在 release.yml 的 Windows 打包逻辑抽出来，
+#     供发布流程（release.yml）以 `uses:` 复用，也可被将来任何流程复用。
+#   - 打包脚本集中在 packaging/windows/（build-msi.ps1 + cx.wxs + License.rtf），本工作流只做
+#     「取二进制 → 渲染成品配置 → 装 WiX → 调打包脚本 → 守卫 → 上传」的编排，打包实现全在 packaging/。
+#
+# 输入 / 输出：
+#   - 输入：编译产出的平台二进制（download 名 = binary-artifact）+ US-016 的成品配置
+#           （由 render-config.sh 用 Secret 渲染）；
+#   - 输出：该平台原生安装器 .msi，作为 artifact（名 = msi-artifact），供发布流程下载汇总。
+#
+# 产物命名（US-017 验收 5）：cx-<version>-x64.msi，清晰体现平台与版本。
+#
+# 安全约定：
+#   - WiX/MSI 是 Windows 工具链，必须在 windows runner 跑；本机（维护者）不参与打包。
+#   - 渠道 token 只在「渲染成品配置」阶段经 Secret 注入；渲染前先 ::add-mask:: 登记为掩码，
+#     打包日志绝不回显任何密钥（验收 6）。
+#   - 成品配置（含 token）只藏在 .msi 内部，绝不作为独立可下载资产上传（上传前守卫删除裸 config）。
+name: package-windows
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: "checkout 的 commit ref（取到 packaging/ 与 brand/ 脚本；应与编译产物同源基线）。"
+        required: true
+        type: string
+      version:
+        description: "定制版本号（形如 0.142.5-cx.1），用于产物命名与 MSI 元数据。"
+        required: true
+        type: string
+      arch:
+        description: "目标架构标签（x64 / arm64）。"
+        required: false
+        type: string
+        default: x64
+      binary-artifact:
+        description: "编译产物 artifact 名（内含 cx.exe）。"
+        required: false
+        type: string
+        default: release-x86_64-pc-windows-msvc
+      msi-artifact:
+        description: "输出 .msi 的 artifact 名。"
+        required: false
+        type: string
+        default: release-windows-msi
+    secrets:
+      CX_BASE_URL:
+        required: true
+      CX_TOKEN:
+        required: true
+      CX_MODEL:
+        required: true
+      # 可选 Authenticode 代码签名：配置了才生效，否则产出未签名 .msi。
+      CX_SIGN_PFX_BASE64:
+        required: false
+      CX_SIGN_PFX_PASSWORD:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: 构建 Windows .msi
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout（取到 packaging/ 与 brand/ 脚本）
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: 下载编译产物（cx.exe）
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ inputs.binary-artifact }}
+          path: dist
+
+      # render-config.sh 用了 declare -A（bash 4+）；windows runner 的 git-bash 是 bash 4+，可直接跑。
+      - name: 渲染成品 config（占位符 → 真实渠道值，经 Secret 注入）
+        env:
+          CX_BASE_URL: ${{ secrets.CX_BASE_URL }}
+          CX_TOKEN: ${{ secrets.CX_TOKEN }}
+          CX_MODEL: ${{ secrets.CX_MODEL }}
+        # 同 macOS：渲染前把渠道值登记为掩码，日志即便意外回显也只见 ***（验收 6）。
+        shell: bash
+        run: |
+          set -euo pipefail
+          for v in "$CX_TOKEN" "$CX_BASE_URL" "$CX_MODEL"; do
+            [ -n "$v" ] && echo "::add-mask::$v"
+          done
+          bash scripts/render-config.sh dist/config.toml
+
+      - name: 安装 WiX Toolset（dotnet 全局工具 + UI 扩展）
+        shell: pwsh
+        run: |
+          dotnet tool install --global wix
+          wix extension add -g WixToolset.UI.wixext
+
+      - name: 构建 .msi（装 cx.exe + 写用户 PATH + ARP 卸载项 + 幂等写 config）
+        shell: pwsh
+        env:
+          CX_VERSION: ${{ inputs.version }}
+          CX_ARCH: ${{ inputs.arch }}
+          # 可选 Authenticode 代码签名：配置了对应 Secret 才生效，否则产出未签名 .msi。
+          CX_SIGN_PFX_BASE64: ${{ secrets.CX_SIGN_PFX_BASE64 }}
+          CX_SIGN_PFX_PASSWORD: ${{ secrets.CX_SIGN_PFX_PASSWORD }}
+        run: |
+          packaging\windows\build-msi.ps1 `
+            -Binary dist\cx.exe `
+            -Config dist\config.toml `
+            -Version $env:CX_VERSION `
+            -Arch $env:CX_ARCH `
+            -Out "dist\cx-$($env:CX_VERSION)-$($env:CX_ARCH).msi"
+
+      # 守卫（token 安全）：同 macOS——成品 config 只能藏在 .msi 内部，
+      # 上传前删除裸 config.toml 并断言其不存在，绝不作为独立资产暴露。
+      - name: 守卫：成品 config 不作独立资产（上传前移除裸 config）
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          msis=(dist/cx-*.msi)
+          [ "${#msis[@]}" -gt 0 ] || { echo "::error::未产出任何 .msi，中止发布。" >&2; exit 1; }
+          rm -f dist/config.toml
+          if [ -e dist/config.toml ]; then
+            echo "::error::dist/config.toml 仍存在，拒绝上传（防止 token 被当独立资产抓取）。" >&2
+            exit 1
+          fi
+          echo "✓ 成品 config 已嵌入 .msi，裸 config 已从待上传目录移除。"
+
+      - name: 上传 .msi 产物（仅 .msi，显式排除任何裸 config）
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: ${{ inputs.msi-artifact }}
+          # 只匹配 .msi；即便上一步遗漏，这里也不会捞到 config.toml。
+          path: dist/cx-*.msi
+          if-no-files-found: error
